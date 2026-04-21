@@ -131,6 +131,18 @@ def get_keyboard_problem():
 async def cmd_start(message: Message):
     problem_mode_users.discard(message.from_user.id)
     name = message.from_user.first_name
+
+    # Уведомляем Леонида о новом пользователе
+    admin_id = 7877326182
+    if message.from_user.id != admin_id:
+        await bot.send_message(
+            admin_id,
+            f"👤 Новый пользователь написал боту!\n"
+            f"Имя: {name}\n"
+            f"Username: @{message.from_user.username or 'нет'}\n"
+            f"ID: {message.from_user.id}"
+        )
+
     await message.answer(
         f"Привет, {name}! 🎉\n\n"
         "Я бот хорошего настроения! 💫\n\n"
