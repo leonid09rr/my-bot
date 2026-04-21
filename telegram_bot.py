@@ -3,6 +3,7 @@ import random
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
+from datetime import datetime
 import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8505307205:AAE0SOPG9dEbJJqkWzX-Xd7zMFvDJXCgSv0")
@@ -200,8 +201,41 @@ async def any_message(message: Message):
         await message.answer(random.choice(all_messages))
 
 
+PETR_ID = 6232215696
+
+PETR_MORNING = [
+    "Доброе утро, лошара! 😂☀️ Вставай, хватит дрыхнуть!",
+    "Эй, чмо, с добрым утром! 😄 Новый день — новые возможности облажаться!",
+    "Просыпайся, лох! 😂 Леонид желает тебе хорошего дня!",
+    "Утро, дружище-лошадь! 🌞 Сегодня ты можешь стать чуть менее лохом — дерзай!",
+    "С добрым утром, чмошник! 😂 Это сообщение от любящего брата Леонида!",
+]
+
+PETR_EVENING = [
+    "Добрый вечер, лох! 😄 Как прошёл день? Надеюсь, не так плохо как обычно!",
+    "Вечер, чмо! 😂 Леонид проверяет — ты ещё жив?",
+    "Эй, лошара, вечер добрый! 🌙 Отдыхай, завтра снова облажаешься!",
+    "Добрый вечер, дружище! 😄 Помни: ты лох, но ты наш лох!",
+    "Вечерний привет, чмошник! 😂 С тебя улыбка — это приказ Леонида!",
+]
+
+async def scheduler():
+    while True:
+        now = datetime.utcnow()
+        # 4:00 UTC = 8:00 Самара
+        if now.hour == 4 and now.minute == 0:
+            await bot.send_message(PETR_ID, random.choice(PETR_MORNING))
+            await asyncio.sleep(61)
+        # 16:00 UTC = 20:00 Самара
+        elif now.hour == 16 and now.minute == 0:
+            await bot.send_message(PETR_ID, random.choice(PETR_EVENING))
+            await asyncio.sleep(61)
+        else:
+            await asyncio.sleep(30)
+
 async def main():
     print("Бот запущен! 🚀")
+    asyncio.create_task(scheduler())
     await dp.start_polling(bot)
 
 
