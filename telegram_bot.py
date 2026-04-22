@@ -158,36 +158,81 @@ async def get_top_items(session: aiohttp.ClientSession, category_path: str, cate
         print(f"Ошибка {category_name}: {e}")
         return []
 
-def analyze_item(item: dict) -> dict | None:
+def analyze_niche(category_name: str, data_points: list) -> dict | None:
+    """Анализируем нишу по агрегированным данным категории"""
     try:
-        name = item.get("name", item.get("title", ""))
-        final_price = item.get("final_price", item.get("price", item.get("priceU", 0)))
-        if isinstance(final_price, (int, float)) and final_price > 10000:
-            final_price = final_price / 100  # WB хранит цены в копейках
-        revenue = item.get("revenue", item.get("sum_orders", 0))
-        sales = item.get("sales", item.get("orders", 0))
-        balance = item.get("balance", item.get("stock", 0))
-        if not name or final_price < 300:
+        if not data_points:
             return None
-        markup = round(final_price / (final_price * 0.3), 1)
-        return {"name": name, "price": final_price, "revenue": revenue, "sales": sales, "balance": balance, "markup": markup}
-    except Exception:
+
+        # Берём последнюю точку как текущее состояние
+        latest = data_points[-1]
+        revenue = latest.get("revenue", 0)
+        sales = latest.get("sales", 0)
+        items = latest.get("items", 0)
+        items_with_sells_pct = latest.get("items_with_sells_percent", 0)
+        sellers = latest.get("sellers", 0)
+        sellers_with_sells = latest.get("sellers_with_sells", 0)
+        avg_price = latest.get("avg_price", 0)
+        sales_per_item = latest.get("sales_per_items_with_sells_average", 0)
+
+        # Критерий 1: есть деньги в нише (выручка > 50 млн за период)
+        if revenue < 50_000_000:
+            return None
+
+        # Критерий 2: % товаров с движением > 70%
+        if items_with_sells_pct < 70:
+            return None
+
+        # Критерий 3: средняя цена разумная (> 500 руб)
+        if avg_price < 500:
+            return None
+
+        # Считаем концентрацию (монополия ли)
+        top_share = round((sellers_with_sells / sellers * 100) if sellers > 0 else 0, 1)
+
+        # Динамика роста — сравниваем первую и последнюю точки
+        if len(data_points) >= 2:
+            first = data_points[0]
+            growth = round(((latest.get("sales", 0) - first.get("sales", 0)) / max(first.get("sales", 1), 1)) * 100, 1)
+        else:
+            growth = 0
+
+        # Оценка наценки (примерная, одежда обычно x3-x4)
+        estimated_markup = round(avg_price / (avg_price * 0.28), 1)
+
+        return {
+            "name": category_name,
+            "revenue": revenue,
+            "sales": sales,
+            "items": items,
+            "items_with_sells_pct": items_with_sells_pct,
+            "sellers": sellers,
+            "avg_price": round(avg_price),
+            "sales_per_item": round(sales_per_item),
+            "growth": growth,
+            "markup": estimated_markup,
+        }
+    except Exception as e:
+        print(f"Ошибка анализа ниши: {e}")
         return None
 
-def ai_analyze(category: str, items: list) -> str:
-    if not items:
-        return f"В категории {category} подходящих товаров не найдено."
-    items_text = "\n".join([
-        f"- {i['name']}: цена {i['price']}₽, выручка {i['revenue']}₽, продаж {i['sales']}, остаток {i['balance']} шт"
-        for i in items[:8]
-    ])
+def ai_analyze_niche(niche: dict) -> str:
     prompt = (
         f"Ты эксперт по торговле на Wildberries. Сейчас май, сезон весна-лето.\n"
-        f"Проанализируй товары из категории '{category}':\n"
-        f"1. Есть ли сезонный рост в мае?\n"
-        f"2. Какие товары перспективны для входа прямо сейчас?\n"
-        f"3. Есть ли монополия?\n"
-        f"Короткий вывод 4-5 предложений на русском.\n\nТовары:\n{items_text}"
+        f"Оцени нишу '{niche['name']}' по данным:\n"
+        f"- Выручка за период: {niche['revenue']:,}₽\n"
+        f"- Продаж: {niche['sales']:,}\n"
+        f"- Товаров в нише: {niche['items']:,}\n"
+        f"- % товаров с продажами: {niche['items_with_sells_pct']}%\n"
+        f"- Продавцов: {niche['sellers']}\n"
+        f"- Средняя цена: {niche['avg_price']}₽\n"
+        f"- Продаж на товар: {niche['sales_per_item']}\n"
+        f"- Рост продаж: {niche['growth']}%\n\n"
+        f"Ответь на вопросы:\n"
+        f"1. Стоит ли заходить в эту нишу в мае?\n"
+        f"2. Есть ли монополия или лидеры меняются?\n"
+        f"3. Какая стратегия входа?\n"
+        f"Коротко, 4-5 предложений на русском."
     )
     try:
         response = groq_client.chat.completions.create(
@@ -205,16 +250,15 @@ async def run_analysis(message: Message):
     async with aiohttp.ClientSession() as session:
         for category_path, category_name in MAY_CATEGORIES:
             await asyncio.sleep(3)
-            items_raw = await get_top_items(session, category_path, category_name)
-            if not items_raw:
+            data_points = await get_top_items(session, category_path, category_name)
+            if not data_points:
                 continue
-            good_items = [analyze_item(i) for i in items_raw[:50]]
-            good_items = [i for i in good_items if i]
-            if not good_items:
+            niche = analyze_niche(category_name, data_points)
+            if not niche:
+                print(f"Ниша {category_name} не прошла фильтры")
                 continue
-            good_items.sort(key=lambda x: x["revenue"], reverse=True)
-            ai_verdict = ai_analyze(category_name, good_items)
-            results.append({"category": category_name, "items": good_items[:3], "ai_verdict": ai_verdict})
+            ai_verdict = ai_analyze_niche(niche)
+            results.append({"niche": niche, "ai_verdict": ai_verdict})
             await asyncio.sleep(2)
 
     if not results:
@@ -224,16 +268,17 @@ async def run_analysis(message: Message):
     await message.answer(f"✅ Анализ завершён! Найдено перспективных ниш: {len(results)}\n\nПодробности ниже 👇")
 
     for result in results:
-        msg = f"📦 <b>{result['category']}</b>\n\n"
-        msg += f"🤖 <b>Вывод ИИ:</b>\n{result['ai_verdict']}\n\n"
-        msg += "🔥 <b>Топ товары:</b>\n"
-        for item in result["items"]:
-            msg += (
-                f"\n• <b>{item['name'][:50]}</b>\n"
-                f"  💰 {item['price']}₽ | Наценка: {item['markup']}x\n"
-                f"  📈 Выручка: {item['revenue']:,}₽ | Продаж: {item['sales']}\n"
-                f"  📦 Остаток: {item['balance']} шт\n"
-            )
+        n = result["niche"]
+        msg = (
+            f"📦 <b>{n['name']}</b>\n\n"
+            f"💰 Выручка: <b>{n['revenue']:,}₽</b>\n"
+            f"📈 Продаж: {n['sales']:,} | Рост: {n['growth']}%\n"
+            f"🏪 Продавцов: {n['sellers']} | Товаров: {n['items']:,}\n"
+            f"✅ Товаров с продажами: {n['items_with_sells_pct']}%\n"
+            f"💵 Средняя цена: {n['avg_price']}₽\n"
+            f"📦 Продаж на товар: {n['sales_per_item']}\n\n"
+            f"🤖 <b>Вывод ИИ:</b>\n{result['ai_verdict']}"
+        )
         await message.answer(msg, parse_mode="HTML")
         await asyncio.sleep(1)
 
