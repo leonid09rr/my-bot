@@ -24,18 +24,15 @@ MPSTATS_HEADERS = {
     "Content-Type": "application/json"
 }
 
-# ID категорий MPstat для одежды (весна-лето, актуально для мая)
-# Приоритет мужским, женские тоже включены
+# Пути категорий MPstat
 MAY_CATEGORIES = [
-    (130, "Футболки мужские"),
-    (131, "Шорты мужские"),
-    (132, "Рубашки мужские"),
-    (133, "Джинсы мужские"),
-    (134, "Брюки мужские"),
-    (105, "Платья"),
-    (108, "Шорты женские"),
-    (109, "Юбки"),
-    (119, "Джинсы женские"),
+    ("Мужчинам/Футболки и поло", "Футболки мужские"),
+    ("Мужчинам/Шорты", "Шорты мужские"),
+    ("Мужчинам/Рубашки", "Рубашки мужские"),
+    ("Мужчинам/Джинсы", "Джинсы мужские"),
+    ("Женщинам/Платья и сарафаны", "Платья"),
+    ("Женщинам/Шорты", "Шорты женские"),
+    ("Женщинам/Юбки", "Юбки"),
 ]
 
 WISHES = [
@@ -138,20 +135,24 @@ def get_advice(text: str) -> str:
 
 # === АНАЛИТИКА ===
 
-async def get_top_items(session: aiohttp.ClientSession, category_id: int, category_name: str) -> list:
+async def get_top_items(session: aiohttp.ClientSession, category_path: str, category_name: str) -> list:
     date_to = datetime.now().strftime("%Y-%m-%d")
     date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-    url = f"https://mpstats.io/api/wb/get/subject/items"
-    params = {"id": category_id, "d1": date_from, "d2": date_to}
+    url = "https://mpstats.io/api/wb/get/category/items"
+    params = {"path": category_path, "d1": date_from, "d2": date_to}
     try:
-        async with session.post(url, headers=MPSTATS_HEADERS, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-            print(f"Категория {category_name} (id={category_id}): статус {resp.status}")
+        async with session.get(url, headers=MPSTATS_HEADERS, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            print(f"Категория {category_name}: статус {resp.status}")
+            text = await resp.text()
+            print(f"Ответ (первые 500 символов): {text[:500]}")
             if resp.status == 200:
-                data = await resp.json()
-                return data if isinstance(data, list) else data.get("data", [])
-            else:
-                text = await resp.text()
-                print(f"Ответ: {text[:200]}")
+                import json
+                data = json.loads(text)
+                items = data if isinstance(data, list) else data.get("data", data.get("items", []))
+                print(f"Найдено товаров: {len(items)}")
+                if items:
+                    print(f"Пример товара: {str(items[0])[:300]}")
+                return items
             return []
     except Exception as e:
         print(f"Ошибка {category_name}: {e}")
@@ -159,16 +160,16 @@ async def get_top_items(session: aiohttp.ClientSession, category_id: int, catego
 
 def analyze_item(item: dict) -> dict | None:
     try:
-        name = item.get("name", "")
-        final_price = item.get("final_price", item.get("price", 0))
-        revenue = item.get("revenue", 0)
-        sales = item.get("sales", 0)
-        balance = item.get("balance", 0)
-        if final_price < 800 or sales < 10 or revenue < 50000 or balance < 5:
+        name = item.get("name", item.get("title", ""))
+        final_price = item.get("final_price", item.get("price", item.get("priceU", 0)))
+        if isinstance(final_price, (int, float)) and final_price > 10000:
+            final_price = final_price / 100  # WB хранит цены в копейках
+        revenue = item.get("revenue", item.get("sum_orders", 0))
+        sales = item.get("sales", item.get("orders", 0))
+        balance = item.get("balance", item.get("stock", 0))
+        if not name or final_price < 300:
             return None
         markup = round(final_price / (final_price * 0.3), 1)
-        if markup < 2.5:
-            return None
         return {"name": name, "price": final_price, "revenue": revenue, "sales": sales, "balance": balance, "markup": markup}
     except Exception:
         return None
@@ -202,9 +203,9 @@ async def run_analysis(message: Message):
     await message.answer("🔍 Запускаю анализ товаров для мая...\nЭто займёт 2-3 минуты, жди!")
     results = []
     async with aiohttp.ClientSession() as session:
-        for category_id, category_name in MAY_CATEGORIES:
+        for category_path, category_name in MAY_CATEGORIES:
             await asyncio.sleep(3)
-            items_raw = await get_top_items(session, category_id, category_name)
+            items_raw = await get_top_items(session, category_path, category_name)
             if not items_raw:
                 continue
             good_items = [analyze_item(i) for i in items_raw[:50]]
