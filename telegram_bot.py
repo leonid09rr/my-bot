@@ -24,13 +24,42 @@ MPSTATS_HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Базовые категории одежды для поиска подкатегорий
-BASE_CATEGORIES = [
-    "Мужчинам",
-    "Женщинам",
-    "Мальчикам",
-    "Девочкам",
-    "Для новорождённых",
+# Полный список категорий одежды с правильными путями MPstats
+CLOTHING_CATEGORIES = [
+    # Мужские (приоритет)
+    ("Мужчинам/Футболки и поло", "Футболки мужские"),
+    ("Мужчинам/Шорты", "Шорты мужские"),
+    ("Мужчинам/Рубашки", "Рубашки мужские"),
+    ("Мужчинам/Джинсы", "Джинсы мужские"),
+    ("Мужчинам/Брюки", "Брюки мужские"),
+    ("Мужчинам/Спортивные костюмы", "Спортивные костюмы мужские"),
+    ("Мужчинам/Толстовки и свитшоты", "Толстовки мужские"),
+    ("Мужчинам/Куртки и пиджаки", "Куртки мужские"),
+    ("Мужчинам/Костюмы", "Костюмы мужские"),
+    ("Мужчинам/Майки и безрукавки", "Майки мужские"),
+    ("Мужчинам/Свитеры и кардиганы", "Свитеры мужские"),
+    ("Мужчинам/Пальто и плащи", "Пальто мужские"),
+    ("Мужчинам/Нижнее бельё", "Нижнее бельё мужское"),
+    ("Мужчинам/Носки", "Носки мужские"),
+    ("Мужчинам/Худи", "Худи мужские"),
+    # Женские
+    ("Женщинам/Платья и сарафаны", "Платья"),
+    ("Женщинам/Шорты", "Шорты женские"),
+    ("Женщинам/Юбки", "Юбки"),
+    ("Женщинам/Блузки и рубашки", "Блузки женские"),
+    ("Женщинам/Джинсы", "Джинсы женские"),
+    ("Женщинам/Костюмы", "Костюмы женские"),
+    ("Женщинам/Брюки", "Брюки женские"),
+    ("Женщинам/Спортивные костюмы", "Спортивные костюмы женские"),
+    ("Женщинам/Толстовки и свитшоты", "Толстовки женские"),
+    ("Женщинам/Футболки и топы", "Футболки женские"),
+    ("Женщинам/Куртки", "Куртки женские"),
+    ("Женщинам/Пальто", "Пальто женские"),
+    ("Женщинам/Свитеры и кардиганы", "Свитеры женские"),
+    ("Женщинам/Нижнее бельё", "Нижнее бельё женское"),
+    ("Женщинам/Купальники", "Купальники"),
+    ("Женщинам/Леггинсы", "Леггинсы"),
+    ("Женщинам/Комбинезоны", "Комбинезоны"),
 ]
 
 WISHES = [
@@ -132,27 +161,6 @@ def get_advice(text: str) -> str:
 
 
 # === АНАЛИТИКА ===
-
-async def get_all_categories(session: aiohttp.ClientSession) -> list:
-    """Получаем все категории одежды из MPstats"""
-    url = "https://mpstats.io/api/wb/get/categories"
-    try:
-        async with session.get(url, headers=MPSTATS_HEADERS, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-            print(f"Категории: статус {resp.status}")
-            if resp.status == 200:
-                import json
-                data = json.loads(await resp.text())
-                print(f"Всего категорий: {len(data) if isinstance(data, list) else 'dict'}")
-                print(f"Пример: {str(data)[:300]}")
-                return data if isinstance(data, list) else []
-            else:
-                text = await resp.text()
-                print(f"Ошибка категорий: {text[:200]}")
-                return []
-    except Exception as e:
-        print(f"Ошибка get_all_categories: {e}")
-        return []
-
 
 async def get_top_items(session: aiohttp.ClientSession, category_path: str, category_name: str) -> list:
     date_to = datetime.now().strftime("%Y-%m-%d")
@@ -279,65 +287,16 @@ def ai_analyze_niche(niche: dict) -> str:
         return f"Ошибка ИИ: {e}"
 
 async def run_analysis(message: Message):
-    await message.answer("🔍 Запускаю анализ товаров для мая...\nЭто займёт 2-3 минуты, жди!")
+    await message.answer(f"🔍 Запускаю анализ {len(CLOTHING_CATEGORIES)} категорий одежды...\nЭто займёт ~3 минуты, жди!")
     results = []
     async with aiohttp.ClientSession() as session:
-        # Получаем все категории
-        all_cats = await get_all_categories(session)
-        await asyncio.sleep(2)
-
-        # Ключевые слова одежды — фильтруем только одежду
-        CLOTHING_KEYWORDS = [
-            "футболк", "шорты", "рубашк", "джинс", "брюки", "брюк",
-            "платье", "платья", "юбк", "блузк", "костюм", "толстовк",
-            "свитшот", "худи", "куртк", "пальто", "плащ", "ветровк",
-            "жилет", "свитер", "кардиган", "лонгслив", "леггинс",
-            "комбинезон", "сарафан", "пиджак", "жакет", "майк",
-            "трусы", "носки", "колготк", "купальник", "нижнее",
-            "спортивн", "верхняя одежда", "пуховик", "шуба"
-        ]
-
-        def is_clothing(name: str) -> bool:
-            name_lower = name.lower()
-            return any(kw in name_lower for kw in CLOTHING_KEYWORDS)
-
-        # Фильтруем только одежду
-        clothing_cats = [c for c in all_cats if is_clothing(c.get("name", ""))]
-        print(f"Категорий одежды найдено: {len(clothing_cats)}")
-
-        if not clothing_cats:
-            # Запасной список если API не вернул категории
-            clothing_cats = [
-                {"name": "Футболки мужские", "path": "Мужчинам/Футболки и поло"},
-                {"name": "Шорты мужские", "path": "Мужчинам/Шорты"},
-                {"name": "Рубашки мужские", "path": "Мужчинам/Рубашки"},
-                {"name": "Джинсы мужские", "path": "Мужчинам/Джинсы"},
-                {"name": "Брюки мужские", "path": "Мужчинам/Брюки"},
-                {"name": "Спортивные костюмы мужские", "path": "Мужчинам/Спортивные костюмы"},
-                {"name": "Толстовки мужские", "path": "Мужчинам/Толстовки и свитшоты"},
-                {"name": "Платья", "path": "Женщинам/Платья и сарафаны"},
-                {"name": "Шорты женские", "path": "Женщинам/Шорты"},
-                {"name": "Юбки", "path": "Женщинам/Юбки"},
-                {"name": "Блузки женские", "path": "Женщинам/Блузки и рубашки"},
-                {"name": "Джинсы женские", "path": "Женщинам/Джинсы"},
-                {"name": "Костюмы женские", "path": "Женщинам/Костюмы"},
-                {"name": "Брюки женские", "path": "Женщинам/Брюки"},
-                {"name": "Спортивные костюмы женские", "path": "Женщинам/Спортивные костюмы"},
-            ]
-
-        # Берём только первые 50 чтобы не ждать часами
-        clothing_cats = clothing_cats[:50]
-        await message.answer(f"🔍 Нашёл категорий одежды: {len(clothing_cats)}. Анализирую, займёт ~3 минуты...")
-
         all_niches = []
-        for cat in clothing_cats:
-            path = cat.get("path", cat.get("name", ""))
-            name = cat.get("name", path)
+        for category_path, category_name in CLOTHING_CATEGORIES:
             await asyncio.sleep(2)
-            data_points = await get_top_items(session, path, name)
+            data_points = await get_top_items(session, category_path, category_name)
             if not data_points:
                 continue
-            niche = analyze_niche(name, data_points)
+            niche = analyze_niche(category_name, data_points)
             if not niche:
                 continue
             all_niches.append(niche)
