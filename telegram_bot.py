@@ -325,7 +325,9 @@ async def run_analysis(message: Message):
                 {"name": "Спортивные костюмы женские", "path": "Женщинам/Спортивные костюмы"},
             ]
 
-        await message.answer(f"🔍 Нашёл {len(clothing_cats)} категорий одежды. Анализирую каждую...")
+        # Берём только первые 50 чтобы не ждать часами
+        clothing_cats = clothing_cats[:50]
+        await message.answer(f"🔍 Нашёл категорий одежды: {len(clothing_cats)}. Анализирую, займёт ~3 минуты...")
 
         all_niches = []
         for cat in clothing_cats:
