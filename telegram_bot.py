@@ -24,21 +24,13 @@ MPSTATS_HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Пути категорий MPstat (приоритет мужским)
-MAY_CATEGORIES = [
-    ("Мужчинам/Футболки и поло", "Футболки мужские"),
-    ("Мужчинам/Шорты", "Шорты мужские"),
-    ("Мужчинам/Рубашки", "Рубашки мужские"),
-    ("Мужчинам/Джинсы", "Джинсы мужские"),
-    ("Мужчинам/Брюки", "Брюки мужские"),
-    ("Мужчинам/Спортивные костюмы", "Спортивные костюмы мужские"),
-    ("Мужчинам/Толстовки и свитшоты", "Толстовки мужские"),
-    ("Женщинам/Платья и сарафаны", "Платья"),
-    ("Женщинам/Шорты", "Шорты женские"),
-    ("Женщинам/Юбки", "Юбки"),
-    ("Женщинам/Блузки и рубашки", "Блузки женские"),
-    ("Женщинам/Джинсы", "Джинсы женские"),
-    ("Женщинам/Костюмы", "Костюмы женские"),
+# Базовые категории одежды для поиска подкатегорий
+BASE_CATEGORIES = [
+    "Мужчинам",
+    "Женщинам",
+    "Мальчикам",
+    "Девочкам",
+    "Для новорождённых",
 ]
 
 WISHES = [
@@ -140,6 +132,27 @@ def get_advice(text: str) -> str:
 
 
 # === АНАЛИТИКА ===
+
+async def get_all_categories(session: aiohttp.ClientSession) -> list:
+    """Получаем все категории одежды из MPstats"""
+    url = "https://mpstats.io/api/wb/get/categories"
+    try:
+        async with session.get(url, headers=MPSTATS_HEADERS, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            print(f"Категории: статус {resp.status}")
+            if resp.status == 200:
+                import json
+                data = json.loads(await resp.text())
+                print(f"Всего категорий: {len(data) if isinstance(data, list) else 'dict'}")
+                print(f"Пример: {str(data)[:300]}")
+                return data if isinstance(data, list) else []
+            else:
+                text = await resp.text()
+                print(f"Ошибка категорий: {text[:200]}")
+                return []
+    except Exception as e:
+        print(f"Ошибка get_all_categories: {e}")
+        return []
+
 
 async def get_top_items(session: aiohttp.ClientSession, category_path: str, category_name: str) -> list:
     date_to = datetime.now().strftime("%Y-%m-%d")
@@ -269,18 +282,57 @@ async def run_analysis(message: Message):
     await message.answer("🔍 Запускаю анализ товаров для мая...\nЭто займёт 2-3 минуты, жди!")
     results = []
     async with aiohttp.ClientSession() as session:
-        for category_path, category_name in MAY_CATEGORIES:
-            await asyncio.sleep(3)
-            data_points = await get_top_items(session, category_path, category_name)
+        # Получаем все категории
+        all_cats = await get_all_categories(session)
+        await asyncio.sleep(2)
+
+        # Если не получили — используем стандартный список
+        if not all_cats:
+            all_cats = [
+                {"name": "Футболки мужские", "path": "Мужчинам/Футболки и поло"},
+                {"name": "Шорты мужские", "path": "Мужчинам/Шорты"},
+                {"name": "Рубашки мужские", "path": "Мужчинам/Рубашки"},
+                {"name": "Джинсы мужские", "path": "Мужчинам/Джинсы"},
+                {"name": "Брюки мужские", "path": "Мужчинам/Брюки"},
+                {"name": "Спортивные костюмы мужские", "path": "Мужчинам/Спортивные костюмы"},
+                {"name": "Толстовки мужские", "path": "Мужчинам/Толстовки и свитшоты"},
+                {"name": "Платья", "path": "Женщинам/Платья и сарафаны"},
+                {"name": "Шорты женские", "path": "Женщинам/Шорты"},
+                {"name": "Юбки", "path": "Женщинам/Юбки"},
+                {"name": "Блузки женские", "path": "Женщинам/Блузки и рубашки"},
+                {"name": "Джинсы женские", "path": "Женщинам/Джинсы"},
+                {"name": "Костюмы женские", "path": "Женщинам/Костюмы"},
+                {"name": "Брюки женские", "path": "Женщинам/Брюки"},
+                {"name": "Спортивные костюмы женские", "path": "Женщинам/Спортивные костюмы"},
+            ]
+
+        all_niches = []
+        for cat in all_cats:
+            path = cat.get("path", cat.get("name", ""))
+            name = cat.get("name", path)
+            await asyncio.sleep(2)
+            data_points = await get_top_items(session, path, name)
             if not data_points:
                 continue
-            niche = analyze_niche(category_name, data_points)
+            niche = analyze_niche(name, data_points)
             if not niche:
-                print(f"Ниша {category_name} не прошла фильтры")
                 continue
+            all_niches.append(niche)
+
+        # Сортируем по потенциалу (выручка * % движения / кол-во продавцов)
+        def potential_score(n):
+            return (n["revenue"] * n["items_with_sells_pct"] / 100) / max(n["sellers"], 1)
+
+        all_niches.sort(key=potential_score, reverse=True)
+
+        # Берём топ-10
+        top_niches = all_niches[:10]
+        await message.answer(f"📊 Проанализировано ниш: {len(all_niches)}\n🏆 Показываю топ-10 с потенциалом для мая 👇")
+
+        for niche in top_niches:
             ai_verdict = ai_analyze_niche(niche)
             results.append({"niche": niche, "ai_verdict": ai_verdict})
-            await asyncio.sleep(2)
+            await asyncio.sleep(1)
 
     if not results:
         await message.answer("❌ Подходящих товаров не найдено. Попробуй позже.")
