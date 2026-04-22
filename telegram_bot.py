@@ -25,15 +25,17 @@ MPSTATS_HEADERS = {
 }
 
 # ID категорий MPstat для одежды (весна-лето, актуально для мая)
+# Приоритет мужским, женские тоже включены
 MAY_CATEGORIES = [
+    (130, "Футболки мужские"),
+    (131, "Шорты мужские"),
+    (132, "Рубашки мужские"),
+    (133, "Джинсы мужские"),
+    (134, "Брюки мужские"),
     (105, "Платья"),
-    (107, "Блузки и рубашки"),
     (108, "Шорты женские"),
     (109, "Юбки"),
     (119, "Джинсы женские"),
-    (130, "Футболки мужские"),
-    (131, "Шорты мужские"),
-    (120, "Костюмы женские"),
 ]
 
 WISHES = [
@@ -139,10 +141,10 @@ def get_advice(text: str) -> str:
 async def get_top_items(session: aiohttp.ClientSession, category_id: int, category_name: str) -> list:
     date_to = datetime.now().strftime("%Y-%m-%d")
     date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-    url = "https://mpstats.io/api/wb/get/subject/items"
+    url = f"https://mpstats.io/api/wb/get/subject/items"
     params = {"id": category_id, "d1": date_from, "d2": date_to}
     try:
-        async with session.get(url, headers=MPSTATS_HEADERS, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+        async with session.post(url, headers=MPSTATS_HEADERS, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
             print(f"Категория {category_name} (id={category_id}): статус {resp.status}")
             if resp.status == 200:
                 data = await resp.json()
