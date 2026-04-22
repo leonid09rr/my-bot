@@ -286,9 +286,28 @@ async def run_analysis(message: Message):
         all_cats = await get_all_categories(session)
         await asyncio.sleep(2)
 
-        # Если не получили — используем стандартный список
-        if not all_cats:
-            all_cats = [
+        # Ключевые слова одежды — фильтруем только одежду
+        CLOTHING_KEYWORDS = [
+            "футболк", "шорты", "рубашк", "джинс", "брюки", "брюк",
+            "платье", "платья", "юбк", "блузк", "костюм", "толстовк",
+            "свитшот", "худи", "куртк", "пальто", "плащ", "ветровк",
+            "жилет", "свитер", "кардиган", "лонгслив", "леггинс",
+            "комбинезон", "сарафан", "пиджак", "жакет", "майк",
+            "трусы", "носки", "колготк", "купальник", "нижнее",
+            "спортивн", "верхняя одежда", "пуховик", "шуба"
+        ]
+
+        def is_clothing(name: str) -> bool:
+            name_lower = name.lower()
+            return any(kw in name_lower for kw in CLOTHING_KEYWORDS)
+
+        # Фильтруем только одежду
+        clothing_cats = [c for c in all_cats if is_clothing(c.get("name", ""))]
+        print(f"Категорий одежды найдено: {len(clothing_cats)}")
+
+        if not clothing_cats:
+            # Запасной список если API не вернул категории
+            clothing_cats = [
                 {"name": "Футболки мужские", "path": "Мужчинам/Футболки и поло"},
                 {"name": "Шорты мужские", "path": "Мужчинам/Шорты"},
                 {"name": "Рубашки мужские", "path": "Мужчинам/Рубашки"},
@@ -306,8 +325,10 @@ async def run_analysis(message: Message):
                 {"name": "Спортивные костюмы женские", "path": "Женщинам/Спортивные костюмы"},
             ]
 
+        await message.answer(f"🔍 Нашёл {len(clothing_cats)} категорий одежды. Анализирую каждую...")
+
         all_niches = []
-        for cat in all_cats:
+        for cat in clothing_cats:
             path = cat.get("path", cat.get("name", ""))
             name = cat.get("name", path)
             await asyncio.sleep(2)
