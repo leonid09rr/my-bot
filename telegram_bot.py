@@ -8,9 +8,9 @@ from aiogram.filters import CommandStart, Command
 from datetime import datetime, timedelta
 from groq import Groq
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8505307205:AAE0SOPG9dEbJJqkWzX-Xd7zMFvDJXCgSv0")
-MPSTATS_TOKEN = os.getenv("MPSTATS_TOKEN", "69e8b1b5127788.72989978de51d3bdd9eed1e01ec42052e689e741")
-GROQ_TOKEN = os.getenv("GROQ_TOKEN", "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")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+MPSTATS_TOKEN = os.getenv("MPSTATS_TOKEN")
+GROQ_TOKEN = os.getenv("GROQ_TOKEN")
 ADMIN_ID = 7877326182
 
 bot = Bot(token=BOT_TOKEN)
