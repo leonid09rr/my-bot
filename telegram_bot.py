@@ -24,15 +24,16 @@ MPSTATS_HEADERS = {
     "Content-Type": "application/json"
 }
 
+# ID категорий MPstat для одежды (весна-лето, актуально для мая)
 MAY_CATEGORIES = [
-    "Женщинам/Платья и сарафаны",
-    "Женщинам/Блузки и рубашки",
-    "Женщинам/Шорты",
-    "Женщинам/Юбки",
-    "Мужчинам/Футболки и поло",
-    "Мужчинам/Шорты",
-    "Женщинам/Джинсы",
-    "Женщинам/Костюмы",
+    (105, "Платья"),
+    (107, "Блузки и рубашки"),
+    (108, "Шорты женские"),
+    (109, "Юбки"),
+    (119, "Джинсы женские"),
+    (130, "Футболки мужские"),
+    (131, "Шорты мужские"),
+    (120, "Костюмы женские"),
 ]
 
 WISHES = [
@@ -135,19 +136,23 @@ def get_advice(text: str) -> str:
 
 # === АНАЛИТИКА ===
 
-async def get_top_items(session: aiohttp.ClientSession, category: str) -> list:
+async def get_top_items(session: aiohttp.ClientSession, category_id: int, category_name: str) -> list:
     date_to = datetime.now().strftime("%Y-%m-%d")
     date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-    url = "https://mpstats.io/api/wb/get/category/items"
-    params = {"path": category, "d1": date_from, "d2": date_to}
+    url = "https://mpstats.io/api/wb/get/subject/items"
+    params = {"id": category_id, "d1": date_from, "d2": date_to}
     try:
         async with session.get(url, headers=MPSTATS_HEADERS, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            print(f"Категория {category_name} (id={category_id}): статус {resp.status}")
             if resp.status == 200:
                 data = await resp.json()
                 return data if isinstance(data, list) else data.get("data", [])
+            else:
+                text = await resp.text()
+                print(f"Ответ: {text[:200]}")
             return []
     except Exception as e:
-        print(f"Ошибка {category}: {e}")
+        print(f"Ошибка {category_name}: {e}")
         return []
 
 def analyze_item(item: dict) -> dict | None:
@@ -195,9 +200,9 @@ async def run_analysis(message: Message):
     await message.answer("🔍 Запускаю анализ товаров для мая...\nЭто займёт 2-3 минуты, жди!")
     results = []
     async with aiohttp.ClientSession() as session:
-        for category in MAY_CATEGORIES:
+        for category_id, category_name in MAY_CATEGORIES:
             await asyncio.sleep(3)
-            items_raw = await get_top_items(session, category)
+            items_raw = await get_top_items(session, category_id, category_name)
             if not items_raw:
                 continue
             good_items = [analyze_item(i) for i in items_raw[:50]]
@@ -205,8 +210,8 @@ async def run_analysis(message: Message):
             if not good_items:
                 continue
             good_items.sort(key=lambda x: x["revenue"], reverse=True)
-            ai_verdict = ai_analyze(category, good_items)
-            results.append({"category": category.split("/")[-1], "items": good_items[:3], "ai_verdict": ai_verdict})
+            ai_verdict = ai_analyze(category_name, good_items)
+            results.append({"category": category_name, "items": good_items[:3], "ai_verdict": ai_verdict})
             await asyncio.sleep(2)
 
     if not results:
