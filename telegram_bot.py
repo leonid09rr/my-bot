@@ -24,15 +24,21 @@ MPSTATS_HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Пути категорий MPstat
+# Пути категорий MPstat (приоритет мужским)
 MAY_CATEGORIES = [
     ("Мужчинам/Футболки и поло", "Футболки мужские"),
     ("Мужчинам/Шорты", "Шорты мужские"),
     ("Мужчинам/Рубашки", "Рубашки мужские"),
     ("Мужчинам/Джинсы", "Джинсы мужские"),
+    ("Мужчинам/Брюки", "Брюки мужские"),
+    ("Мужчинам/Спортивные костюмы", "Спортивные костюмы мужские"),
+    ("Мужчинам/Толстовки и свитшоты", "Толстовки мужские"),
     ("Женщинам/Платья и сарафаны", "Платья"),
     ("Женщинам/Шорты", "Шорты женские"),
     ("Женщинам/Юбки", "Юбки"),
+    ("Женщинам/Блузки и рубашки", "Блузки женские"),
+    ("Женщинам/Джинсы", "Джинсы женские"),
+    ("Женщинам/Костюмы", "Костюмы женские"),
 ]
 
 WISHES = [
@@ -164,81 +170,96 @@ def analyze_niche(category_name: str, data_points: list) -> dict | None:
         if not data_points:
             return None
 
-        # Берём последнюю точку как текущее состояние
+        # Суммируем данные по всем точкам (период в целом)
+        total_revenue = sum(d.get("revenue", 0) for d in data_points)
+        total_sales = sum(d.get("sales", 0) for d in data_points)
+
+        # Берём последнюю точку для текущих показателей
         latest = data_points[-1]
-        revenue = latest.get("revenue", 0)
-        sales = latest.get("sales", 0)
         items = latest.get("items", 0)
+        items_with_sells = latest.get("items_with_sells", 0)
         items_with_sells_pct = latest.get("items_with_sells_percent", 0)
         sellers = latest.get("sellers", 0)
         sellers_with_sells = latest.get("sellers_with_sells", 0)
         avg_price = latest.get("avg_price", 0)
+        median_price = latest.get("median_price", 0)
         sales_per_item = latest.get("sales_per_items_with_sells_average", 0)
+        revenue_per_item = latest.get("revenue_per_items_with_sells_average", 0)
+        balance = latest.get("баланс", latest.get("balance", 0))
 
-        # Критерий 1: есть деньги в нише (выручка > 50 млн за период)
-        if revenue < 50_000_000:
+        # Минимальные фильтры (не строгие)
+        if total_revenue < 10_000_000:
+            return None
+        if avg_price < 300:
             return None
 
-        # Критерий 2: % товаров с движением > 70%
-        if items_with_sells_pct < 70:
-            return None
-
-        # Критерий 3: средняя цена разумная (> 500 руб)
-        if avg_price < 500:
-            return None
-
-        # Считаем концентрацию (монополия ли)
-        top_share = round((sellers_with_sells / sellers * 100) if sellers > 0 else 0, 1)
-
-        # Динамика роста — сравниваем первую и последнюю точки
+        # Динамика роста (сравниваем первую и последнюю точки)
         if len(data_points) >= 2:
             first = data_points[0]
-            growth = round(((latest.get("sales", 0) - first.get("sales", 0)) / max(first.get("sales", 1), 1)) * 100, 1)
+            first_sales = first.get("sales", 1)
+            last_sales = latest.get("sales", 0)
+            growth = round(((last_sales - first_sales) / max(first_sales, 1)) * 100, 1)
         else:
             growth = 0
 
-        # Оценка наценки (примерная, одежда обычно x3-x4)
-        estimated_markup = round(avg_price / (avg_price * 0.28), 1)
+        # Оценка наценки (закупка ~25-30% от цены продажи для одежды)
+        estimated_purchase = avg_price * 0.28
+        markup = round(avg_price / estimated_purchase, 1)
+
+        # Концентрация рынка (монополия?)
+        sellers_pct = round((sellers_with_sells / max(sellers, 1)) * 100, 1)
 
         return {
             "name": category_name,
-            "revenue": revenue,
-            "sales": sales,
+            "revenue": total_revenue,
+            "sales": total_sales,
             "items": items,
+            "items_with_sells": items_with_sells,
             "items_with_sells_pct": items_with_sells_pct,
             "sellers": sellers,
+            "sellers_with_sells": sellers_with_sells,
+            "sellers_active_pct": sellers_pct,
             "avg_price": round(avg_price),
+            "median_price": round(median_price),
             "sales_per_item": round(sales_per_item),
+            "revenue_per_item": round(revenue_per_item),
+            "balance": balance,
             "growth": growth,
-            "markup": estimated_markup,
+            "markup": markup,
         }
     except Exception as e:
-        print(f"Ошибка анализа ниши: {e}")
+        print(f"Ошибка анализа ниши {category_name}: {e}")
         return None
 
 def ai_analyze_niche(niche: dict) -> str:
+    monopoly = "высокая концентрация" if niche['sellers_active_pct'] > 80 else "лидеры меняются"
     prompt = (
         f"Ты эксперт по торговле на Wildberries. Сейчас май, сезон весна-лето.\n"
-        f"Оцени нишу '{niche['name']}' по данным:\n"
-        f"- Выручка за период: {niche['revenue']:,}₽\n"
-        f"- Продаж: {niche['sales']:,}\n"
-        f"- Товаров в нише: {niche['items']:,}\n"
-        f"- % товаров с продажами: {niche['items_with_sells_pct']}%\n"
-        f"- Продавцов: {niche['sellers']}\n"
-        f"- Средняя цена: {niche['avg_price']}₽\n"
-        f"- Продаж на товар: {niche['sales_per_item']}\n"
-        f"- Рост продаж: {niche['growth']}%\n\n"
-        f"Ответь на вопросы:\n"
-        f"1. Стоит ли заходить в эту нишу в мае?\n"
-        f"2. Есть ли монополия или лидеры меняются?\n"
-        f"3. Какая стратегия входа?\n"
-        f"Коротко, 4-5 предложений на русском."
+        f"Оцени нишу '{niche['name']}' строго по критериям:\n\n"
+        f"ДАННЫЕ НИШИ:\n"
+        f"- Выручка за 30 дней: {niche['revenue']:,}₽\n"
+        f"- Продаж: {niche['sales']:,} шт\n"
+        f"- Всего товаров в нише: {niche['items']:,}\n"
+        f"- Товаров с продажами: {niche['items_with_sells']:,} ({niche['items_with_sells_pct']}%)\n"
+        f"- Продавцов всего: {niche['sellers']}, активных: {niche['sellers_with_sells']} ({niche['sellers_active_pct']}%)\n"
+        f"- Средняя цена: {niche['avg_price']}₽, медианная: {niche['median_price']}₽\n"
+        f"- Продаж на товар (среди продающих): {niche['sales_per_item']}\n"
+        f"- Выручка на товар: {niche['revenue_per_item']:,}₽\n"
+        f"- Рост за период: {niche['growth']}%\n"
+        f"- Концентрация: {monopoly}\n\n"
+        f"ОТВЕТЬ:\n"
+        f"1. Много ли денег в нише и стоит ли заходить в мае?\n"
+        f"2. Монополия есть или лидеры меняются?\n"
+        f"3. Слабая ли конкуренция по качеству?\n"
+        f"4. Какая стратегия входа?\n"
+        f"5. Оценка ниши: 🔥 Топ / ✅ Хорошая / ⚠️ Средняя / ❌ Плохая\n\n"
+        f"Ответ строго на русском, 5-6 предложений."
     )
     try:
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=350,
+            max_tokens=400,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -267,16 +288,27 @@ async def run_analysis(message: Message):
 
     await message.answer(f"✅ Анализ завершён! Найдено перспективных ниш: {len(results)}\n\nПодробности ниже 👇")
 
-    for result in results:
+    for i, result in enumerate(results, 1):
         n = result["niche"]
         msg = (
-            f"📦 <b>{n['name']}</b>\n\n"
-            f"💰 Выручка: <b>{n['revenue']:,}₽</b>\n"
-            f"📈 Продаж: {n['sales']:,} | Рост: {n['growth']}%\n"
-            f"🏪 Продавцов: {n['sellers']} | Товаров: {n['items']:,}\n"
-            f"✅ Товаров с продажами: {n['items_with_sells_pct']}%\n"
-            f"💵 Средняя цена: {n['avg_price']}₽\n"
-            f"📦 Продаж на товар: {n['sales_per_item']}\n\n"
+            f"{'—'*30}\n"
+            f"<b>#{i} {n['name']}</b>\n\n"
+            f"💰 <b>Деньги в нише:</b>\n"
+            f"   Выручка за 30 дней: <b>{n['revenue']:,}₽</b>\n"
+            f"   Продаж: {n['sales']:,} шт\n"
+            f"   Выручка на товар: {n['revenue_per_item']:,}₽\n\n"
+            f"📊 <b>Движение товаров:</b>\n"
+            f"   Всего товаров: {n['items']:,}\n"
+            f"   С продажами: {n['items_with_sells']:,} ({n['items_with_sells_pct']}%)\n"
+            f"   Продаж на товар: {n['sales_per_item']}\n\n"
+            f"🏪 <b>Конкуренция:</b>\n"
+            f"   Продавцов всего: {n['sellers']}\n"
+            f"   Активных: {n['sellers_with_sells']} ({n['sellers_active_pct']}%)\n\n"
+            f"💵 <b>Цена и наценка:</b>\n"
+            f"   Средняя цена: {n['avg_price']}₽\n"
+            f"   Медианная цена: {n['median_price']}₽\n"
+            f"   Наценка (оценка): ~{n['markup']}x\n\n"
+            f"📈 <b>Динамика:</b> рост {n['growth']}%\n\n"
             f"🤖 <b>Вывод ИИ:</b>\n{result['ai_verdict']}"
         )
         await message.answer(msg, parse_mode="HTML")
